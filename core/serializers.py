@@ -1,12 +1,20 @@
 from rest_framework import serializers
 from .models import User, Direction, Service, Poste, FolderType, PieceType, Folder, Piece, Keyword
-
+      
 class UserSerializer(serializers.ModelSerializer):
+    def validate_poste(self, value):
+        if value:
+            existing_user = User.objects.filter(poste=value).exclude(pk=getattr(self.instance, 'pk', None)).first()
+            if existing_user:
+                raise serializers.ValidationError(
+                    f"Ce poste est déjà occupé par {existing_user.prenom} {existing_user.nom}"
+                )
+        return value
+
     class Meta:
         model = User
         fields = ['id', 'email', 'matricule', 'prenom', 'nom', 'poste', 
                  'statut', 'est_admin', 'date_inscription', 'derniere_connexion']
-
 class DirectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Direction

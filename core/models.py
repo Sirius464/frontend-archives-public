@@ -1,6 +1,9 @@
 import uuid
 from django.db import models
+
+from django.core.exceptions import ValidationError  # Ajout de l'import
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
+
 
 # ENUMS
 class StatutChoices(models.TextChoices):
@@ -58,7 +61,7 @@ class User(AbstractBaseUser):
     nom = models.CharField(max_length=100)
     poste = models.ForeignKey('Poste', on_delete=models.SET_NULL, null=True)
     statut = models.CharField(max_length=20, choices=StatutChoices.choices)
-    validation = models.ForeignKey(ValidationHistory, on_delete=models.SET_NULL, null=True)
+    validation = models.ForeignKey(ValidationHistory, on_delete=models.SET_NULL, null=True, blank=True)
     is_staff = models.BooleanField(default=False)
     date_inscription = models.DateTimeField(auto_now_add=True)
     derniere_connexion = models.DateTimeField(null=True, blank=True)
@@ -66,18 +69,47 @@ class User(AbstractBaseUser):
     objects = UserManager()
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['matricule']
+    
+    def __str__(self):
+        return f"{self.prenom} {self.nom}" 
 
+    def save(self, *args, **kwargs):
+        if self.poste:
+            # Si c'est une nouvelle création ou une mise à jour
+            existing_user = User.objects.filter(poste=self.poste).exclude(pk=self.pk).first()
+            if existing_user:
+                raise ValidationError(f"Ce poste est déjà occupé par {existing_user.prenom} {existing_user.nom}")
+            
+            # Si c'est une mise à jour et que l'utilisateur change de poste
+            if not self._state.adding and hasattr(self, '_old_poste') and self._old_poste != self.poste:
+                # Libérer l'ancien poste
+                if self._old_poste:
+                    old_poste = Poste.objects.get(pk=self._old_poste.pk)
+                    old_poste.est_occupe = False
+                    old_poste.save()
+            
+            # Marquer le nouveau poste comme occupé
+            self.poste.est_occupe = True
+            self.poste.save()
+        
+        super().save(*args, **kwargs)
 # DIRECTION, SERVICE, POSTE
 class Direction(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     nom = models.CharField(max_length=100)
     description = models.TextField(blank=True)
+    
+    def __str__(self):
+        return self.nom  # Afficher le nom de la direction
 
 class Service(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     nom = models.CharField(max_length=100)
     description = models.TextField(blank=True)
     direction = models.ForeignKey(Direction, on_delete=models.CASCADE)
+    
+    def __str__(self):
+        return self.nom  # Afficher le nom de la direction
 
 class Poste(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -86,6 +118,9 @@ class Poste(models.Model):
     service = models.ForeignKey(Service, on_delete=models.CASCADE)
     est_occupe = models.BooleanField(default=False)
     est_chef = models.BooleanField(default=False)
+    
+    def __str__(self):
+        return self.nom  # Afficher le nom de la direction
 
 # FOLDER TYPE ET PIECE TYPE
 class FolderType(models.Model):
@@ -95,6 +130,9 @@ class FolderType(models.Model):
     createur = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     date_creation = models.DateTimeField()
     cree_a = models.CharField(max_length=255)
+    
+    def __str__(self):
+        return self.nom  # Afficher le nom de la direction
 
 class PieceType(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -103,11 +141,17 @@ class PieceType(models.Model):
     type_dossier = models.ForeignKey(FolderType, on_delete=models.SET_NULL, null=True, blank=True)
     createur = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     cree_a = models.CharField(max_length=255)
+    
+    def __str__(self):
+        return self.nom  # Afficher le nom de la direction
 
 # KEYWORD
 class Keyword(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     nom = models.CharField(max_length=100)
+    
+    def __str__(self):
+        return self.nom
 
 # FOLDER
 class Folder(models.Model):
@@ -125,6 +169,9 @@ class Folder(models.Model):
     est_public = models.BooleanField(default=False)
     keyword = models.ManyToManyField(Keyword, through='FolderKeyword')
     est_supprime = models.BooleanField(default=False)
+    
+    def __str__(self):
+        return self.titre
 
 # PIECE
 class Piece(models.Model):
@@ -143,6 +190,9 @@ class Piece(models.Model):
     est_public = models.BooleanField(default=False)
     keyword = models.ManyToManyField(Keyword, through='PieceKeyword')
     est_supprime = models.BooleanField(default=False)
+    
+    def __str__(self):
+        return self.titre
 
 # HISTORIQUE
 class PieceHistory(models.Model):
